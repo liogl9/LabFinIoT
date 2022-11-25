@@ -156,8 +156,6 @@ if __name__ == '__main__':
     try:
         with aux_iot_hub_built_in_event_hub_consumer_client:
             print("Starting sample temperature monitor application")
-            print("Maximum temperature set to {} degrees".format(
-                MAX_TEMPERATURE))
             # EVERY TIME WE RECEIVE AN EVENT WE CALL THE METHOD ON EVENT
             aux_iot_hub_built_in_event_hub_consumer_client.receive(
                 on_event=on_iot_hub_message_event, starting_position="@latest")
