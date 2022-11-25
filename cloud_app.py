@@ -3,6 +3,8 @@ import os
 import sys
 from azure.eventhub import EventHubConsumerClient
 from azure.iot.hub import IoTHubRegistryManager
+import requests
+
 
 IOT_HUB_BUILT_IN_ENDPOINT_CONNECTION_STRING = "Endpoint=sb://ihsuprodamres002dednamespace.servicebus.windows.net/;SharedAccessKeyName=service;SharedAccessKey=pvWJyZJmA5whvLiuOIV5532ogiHdp3T37ogdTS7Tnbg=;EntityPath=iothub-ehub-icaiiotlab-22747998-22dc6ea27f"
 
@@ -15,15 +17,27 @@ AUX_EVENTHUB_SAS = IOT_HUB_BUILT_IN_ENDPOINT_CONNECTION_STRING.split(";")[
 AUX_IOT_HUB_CONNECTION_STRING = "HostName=icaiiotlabgroup01Lio.azure-devices.net;SharedAccessKeyName=service;SharedAccessKey={}".format(
     AUX_EVENTHUB_SAS)
 
-MAXIMUM_TEMPERATURE = 33.3
-MIN_TEMPERATURE = 17
+MAX_TEMPERATURE = 33
+MIN_TEMPERATURE = 33
+MAX_HUMIDITY = 45
+MIN_HUMIDITY = 35
+MAX_SOUND = 5
+MIN_SOUND = 10
 MIN_LUX = 900
-MAX_LUX = 1022
+MAX_LUX = 1000
 
 # YOU NEED TO UPDATE THE CONSUMER GROUP
 AUX_EVENT_HUB_CONSUMER_GROUP = "app"
 
-# AUX METHOD - NO NEED TO TOUCH
+api_endpoint = 'https://prod-172.westeurope.logic.azure.com:443/workflows/cc1a6ee5900f4fe4bb52f06d4dc151c7/triggers/manual/paths/invoke?api-version=2016-10-01&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=tAt509zDzfwwA6HyuTj1Z9m3fly6ampaqvBI8oOGKWA'
+
+
+headers = {'Content-type': 'application/json'}
+post_json = {}
+
+post_json["to_address"] = "201703178@alu.comillas.edu"
+post_json["subject_text"] = "Stop in factory"
+post_json["body"] = "There have been an increase in the temp and humid and they need to stop working"
 
 
 def aux_validate_connection_string():
@@ -54,36 +68,53 @@ def on_iot_hub_message_event(partition_context, event):
     # READ MESSAGE PROPERTIES
     # IF YOUR DEVICE DOES NOT SEND TEMPERATURE JUST CHANGE THE FOLLOWING LINES
     event_temperature = event_body['temperature']
-    event_device_name = event_body['device_name']
+    event_humidity = event_body['humidity']
     event_lux = event_body['luminosity']
+    event_sound = event_body['sound_db']
+    event_device_name = event_body['device_name']
+
     # print("Temperature {} from device {} is lower than {}".format(
-    #     event_temperature, event_device_name, MAXIMUM_TEMPERATURE))
+    #     event_temperature, event_device_name, MAX_TEMPERATURE))
 
     command_to_device_message_body = ""
     command_to_device_message_properties = {}
 
     send = 0
-    if event_temperature > MAXIMUM_TEMPERATURE:
+
+    if event_temperature > MAX_TEMPERATURE and event_humidity > MAX_HUMIDITY:
         send = 1
-        print("Temperature {} from device {} is higher than {}".format(
-            event_temperature, event_device_name, MAXIMUM_TEMPERATURE))
-        print("Sending alert to device {}".format(event_device_name))
+        print("Temperature {} and humidity {} from device {} is higher than {} and {}".format(
+            event_temperature, event_humidity, event_device_name, MAX_TEMPERATURE, MAX_HUMIDITY))
         # MESSAGES TO DEVICES HAVE A DICTIONARY OF PROPERTIES
         command_to_device_message_properties['Tmp_cmd'] = 'Stop'
-    elif event_temperature < MIN_TEMPERATURE:
+        response = requests.post(api_endpoint, json=post_json, headers=headers)
+        print(response)
+
+    elif event_temperature < MIN_TEMPERATURE and event_humidity < MIN_HUMIDITY:
         send = 1
-        print("Temperature {} from device {} is lower than {}".format(
-            event_temperature, event_device_name, MIN_TEMPERATURE))
-        print("Sending alert to device {}".format(event_device_name))
+        print("Temperature {} and humidity {} from device {} is lower than {} and {}".format(
+            event_temperature, event_humidity, event_device_name, MIN_TEMPERATURE, MIN_HUMIDITY))
         command_to_device_message_properties['Tmp_cmd'] = 'Clothes'
+    else:
+        command_to_device_message_properties['Tmp_cmd'] = 'Nice'
+
+    if event_sound > MAX_SOUND:
+        send = 1
+        print("SOUND {} from device {} is higher than {}".format(
+            event_sound, event_device_name, MAX_SOUND))
+        # MESSAGES TO DEVICES HAVE A DICTIONARY OF PROPERTIES
+        command_to_device_message_properties['Sound_cmd'] = 'on'
+    elif event_sound < MIN_SOUND:
+        send = 1
+        print("SOUND {} from device {} is lower than {}".format(
+            event_sound, event_device_name, MIN_SOUND))
+        command_to_device_message_properties['Sound_cmd'] = 'off'
 
     new_lux_command = ""
     for key in dict.keys(event_lux):
         if event_lux[key] < MIN_LUX:
             print("Lux {} from sector {} from device {} is lower than {}".format(
                 event_lux[key], key, event_device_name, MIN_LUX))
-            print("Sending alert to device {}".format(event_device_name))
-
             new_lux_command = add_lux_cmd(new_lux_command, 1, key)
             send = 1
 
@@ -92,12 +123,12 @@ def on_iot_hub_message_event(partition_context, event):
             new_lux_command = add_lux_cmd(new_lux_command, 0, key)
             print("Lux {} from sector {} from device {} is higher than {}".format(
                 event_lux[key], key, event_device_name, MAX_LUX))
-            print("Sending alert to device {}".format(event_device_name))
 
         if new_lux_command != "":
             command_to_device_message_properties['Lux_cmd'] = new_lux_command
 
     if send:
+        print("Sending alert to device {}".format(event_device_name))
         # MESSAGES TO DEVICES HAVE A BODY
         aux_iot_hub_send_message_to_device(
             device_name=event_device_name, message_body=command_to_device_message_body, message_properties=command_to_device_message_properties)
@@ -126,7 +157,7 @@ if __name__ == '__main__':
         with aux_iot_hub_built_in_event_hub_consumer_client:
             print("Starting sample temperature monitor application")
             print("Maximum temperature set to {} degrees".format(
-                MAXIMUM_TEMPERATURE))
+                MAX_TEMPERATURE))
             # EVERY TIME WE RECEIVE AN EVENT WE CALL THE METHOD ON EVENT
             aux_iot_hub_built_in_event_hub_consumer_client.receive(
                 on_event=on_iot_hub_message_event, starting_position="@latest")
